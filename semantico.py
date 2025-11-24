@@ -1,12 +1,9 @@
-# semantico.py
-# Analisador Sintático e Semântico para a linguagem Mini-C.
-
 import sys
 from lexico import Lexico
 from ttoken import TOKEN
-from tabela_de_simbolos import TabelaDeSimbolos, Simbolo
-from tipo import Tipo, token_para_tipo, compatibilidade_aritmetica, checar_compatibilidade_atribuicao, \
-    checar_compatibilidade_relacional_logica
+# MUDANÇA: Tudo vem da tabela de símbolos agora
+from tabela_de_simbolos import TabelaDeSimbolos, Simbolo, \
+    checar_operacao_binaria, checar_atribuicao, checar_operacao_unaria
 
 
 class Semantico:
@@ -22,9 +19,10 @@ class Semantico:
         try:
             self.Program()
             self.consome(TOKEN.eof)
-            print('\nAnálise sintática e semântica concluída com sucesso.')
+            print('\nAnálise semântica concluída com sucesso!')
         except Exception as e:
-            print(f'\n[ANÁLISE INTERROMPIDA] {e}')
+            print(f'\n[ERRO] {e}')
+            sys.exit(1)
 
     def consome(self, token_esperado):
         if self.token_lido == token_esperado:
@@ -32,38 +30,41 @@ class Semantico:
         else:
             lexema = self.lexico.lexema_atual
             linha = self.lexico.token_linha
-            col = self.lexico.token_coluna
-            msg_recebida = f"'{lexema}' ({TOKEN.msg(self.token_lido)})"
-            msg_esperada = f"'{TOKEN.msg(token_esperado)}'"
             raise Exception(
-                f'Erro Sintático na Linha {linha}, Coluna {col}: Esperado {msg_esperada}, mas foi recebido {msg_recebida}.')
+                f"Linha {linha}: Esperado '{TOKEN.msg(token_esperado)}', mas veio '{TOKEN.msg(self.token_lido)}' ('{lexema}').")
 
     def erro_semantico(self, msg):
         linha = self.lexico.token_linha
-        col = self.lexico.token_coluna
-        raise Exception(f"Erro Semântico na Linha {linha}, Coluna {col}: {msg}")
+        raise Exception(f"Erro Semântico na Linha {linha}: {msg}")
 
-    # --- REGRAS GRAMATICAIS COM AÇÕES SEMÂNTICAS ---
+    # --- GRAMÁTICA ---
 
     def Program(self):
         while self.token_lido in [TOKEN.INT, TOKEN.FLOAT, TOKEN.CHAR]:
             self.Function()
+        simbolo_main = self.tabela.buscar('main')
+        if not simbolo_main:
+            self.erro_semantico("A função principal 'main' não foi encontrada.")
+        if simbolo_main.categoria != 'funcao':
+            self.erro_semantico("O identificador 'main' deve ser uma função.")
 
     def Function(self):
         tipo_retorno = self.Type()
         nome_funcao = self.lexico.lexema_atual
         self.consome(TOKEN.ident)
 
-        simbolo_funcao = Simbolo(nome_funcao, tipo_retorno, 'funcao', info_extras={'params': []})
-        if not self.tabela.adicionar(simbolo_funcao):
+        simbolo_func = Simbolo(nome_funcao, tipo_retorno, 'funcao', info_extras={'params': []})
+        if not self.tabela.adicionar(simbolo_func):
             self.erro_semantico(f"Função '{nome_funcao}' já declarada.")
-        self.funcao_atual = simbolo_funcao
 
+        self.funcao_atual = simbolo_func
         self.tabela.entrar_escopo()
+
         self.consome(TOKEN.abrePar)
-        simbolo_funcao.info_extras['params'] = self.ArgList()
+        simbolo_func.info_extras['params'] = self.ArgList()
         self.consome(TOKEN.fechaPar)
-        self.CompoundStmt()
+
+        self.CompoundStmt(is_func_body=True)
         self.tabela.sair_escopo()
         self.funcao_atual = None
 
@@ -77,81 +78,82 @@ class Semantico:
         return params
 
     def Arg(self):
-        tipo_arg = self.Type()
-        nome_arg = self.lexico.lexema_atual
+        tipo_base_tuple = self.Type()
+        token_base = tipo_base_tuple[0]
+
+        nome = self.lexico.lexema_atual
         self.consome(TOKEN.ident)
 
-        simbolo_arg = Simbolo(nome_arg, tipo_arg, 'parametro')
-        if not self.tabela.adicionar(simbolo_arg):
-            self.erro_semantico(f"Parâmetro '{nome_arg}' já declarado.")
-
-        # Lida com array como argumento: int v[]
+        eh_array = False
         if self.token_lido == TOKEN.abreColch:
             self.consome(TOKEN.abreColch)
             self.consome(TOKEN.fechaColch)
-            simbolo_arg.categoria = 'array'
-            simbolo_arg.tipo = Tipo.ARRAY
-            simbolo_arg.info_extras['base_type'] = tipo_arg
+            eh_array = True
 
-        return simbolo_arg.tipo
+        tipo_final = (token_base, eh_array)
+        simbolo = Simbolo(nome, tipo_final, 'parametro')
+        if not self.tabela.adicionar(simbolo):
+            self.erro_semantico(f"Parâmetro '{nome}' duplicado.")
 
-    def CompoundStmt(self):
+        return tipo_final
+
+    def CompoundStmt(self, is_func_body=False):
         self.consome(TOKEN.abreChave)
-        self.StmtList()
+        self.StmtList(is_func_body)
         self.consome(TOKEN.fechaChave)
 
-    def StmtList(self):
-        first_stmt = [TOKEN.FOR, TOKEN.WHILE, TOKEN.IF, TOKEN.abreChave, TOKEN.BREAK, TOKEN.CONTINUE, TOKEN.RETURN,
-                      TOKEN.ptoVirg, TOKEN.ident, TOKEN.valorInt, TOKEN.valorFloat, TOKEN.valorChar, TOKEN.abrePar,
-                      TOKEN.INT, TOKEN.FLOAT, TOKEN.CHAR]
-
-        # Entra em um novo escopo se não for o escopo da função
-        is_function_body = (self.funcao_atual is not None and len(self.tabela.escopos) == 2)
-        if not is_function_body:
+    def StmtList(self, is_func_body=False):
+        if not is_func_body:
             self.tabela.entrar_escopo()
 
-        while self.token_lido in first_stmt:
+        first = [TOKEN.FOR, TOKEN.WHILE, TOKEN.IF, TOKEN.abreChave, TOKEN.BREAK,
+                 TOKEN.CONTINUE, TOKEN.RETURN, TOKEN.ptoVirg, TOKEN.INT, TOKEN.FLOAT, TOKEN.CHAR,
+                 TOKEN.ident, TOKEN.valorInt, TOKEN.valorFloat, TOKEN.valorChar,
+                 TOKEN.abrePar, TOKEN.mais, TOKEN.menos, TOKEN.NOT]
+
+        while self.token_lido in first:
             self.Stmt()
 
-        if not is_function_body:
+        if not is_func_body:
             self.tabela.sair_escopo()
 
     def Stmt(self):
-        token = self.token_lido
-        if token == TOKEN.FOR:
+        tk = self.token_lido
+        if tk == TOKEN.FOR:
             self.ForStmt()
-        elif token == TOKEN.WHILE:
+        elif tk == TOKEN.WHILE:
             self.WhileStmt()
-        elif token == TOKEN.IF:
+        elif tk == TOKEN.IF:
             self.IfStmt()
-        elif token == TOKEN.abreChave:
+        elif tk == TOKEN.abreChave:
             self.CompoundStmt()
-        elif token == TOKEN.BREAK:
-            if self.loop_level == 0: self.erro_semantico("'break' fora de um laço.")
+        elif tk == TOKEN.BREAK:
+            if self.loop_level == 0: self.erro_semantico("'break' fora de laço.")
             self.consome(TOKEN.BREAK);
             self.consome(TOKEN.ptoVirg)
-        elif token == TOKEN.CONTINUE:
-            if self.loop_level == 0: self.erro_semantico("'continue' fora de um laço.")
+        elif tk == TOKEN.CONTINUE:
+            if self.loop_level == 0: self.erro_semantico("'continue' fora de laço.")
             self.consome(TOKEN.CONTINUE);
             self.consome(TOKEN.ptoVirg)
-        elif token == TOKEN.RETURN:
+        elif tk == TOKEN.RETURN:
             self.consome(TOKEN.RETURN)
-            if self.funcao_atual is None: self.erro_semantico("'return' fora de uma função.")
+            if not self.funcao_atual: self.erro_semantico("Return fora de função.")
 
             tipo_expr = self.Expr()
-            tipo_esperado = self.funcao_atual.tipo
 
-            if not checar_compatibilidade_atribuicao(tipo_esperado, tipo_expr):
-                self.erro_semantico(
-                    f"Tipo de retorno incompatível. Esperado '{tipo_esperado.value}', recebido '{tipo_expr.value}'.")
-
+            if not checar_atribuicao(self.funcao_atual.tipo, tipo_expr):
+                t_esp = f"{TOKEN.msg(self.funcao_atual.tipo[0])}"
+                t_rec = f"{TOKEN.msg(tipo_expr[0])}"
+                self.erro_semantico(f"Retorno inválido. Esperado {t_esp}, recebido {t_rec}.")
             self.consome(TOKEN.ptoVirg)
-        elif token in [TOKEN.INT, TOKEN.FLOAT, TOKEN.CHAR]:
+
+        elif tk in [TOKEN.INT, TOKEN.FLOAT, TOKEN.CHAR]:
             self.Declaration()
-        elif token == TOKEN.ptoVirg:
+        elif tk == TOKEN.ptoVirg:
             self.consome(TOKEN.ptoVirg)
         else:
-            self.Expr(); self.consome(TOKEN.ptoVirg)
+            self.Expr()
+            self.consome(TOKEN.ptoVirg)
 
     def ForStmt(self):
         self.consome(TOKEN.FOR);
@@ -186,194 +188,204 @@ class Semantico:
             self.Stmt()
 
     def Declaration(self):
-        tipo = self.Type()
-        self.IdentList(tipo)
+        tipo_base = self.Type()
+        self.IdentList(tipo_base)
         self.consome(TOKEN.ptoVirg)
 
     def Type(self):
-        tipo = token_para_tipo(self.token_lido)
-        if tipo == Tipo.ERRO:
-            self.erro_semantico("Tipo (int, float, char) esperado.")
-        self.consome(self.token_lido)
-        return tipo
+        tk = self.token_lido
+        if tk not in [TOKEN.INT, TOKEN.FLOAT, TOKEN.CHAR]:
+            self.erro_semantico("Esperado tipo (int, float, char).")
+        self.consome(tk)
+        return (tk, False)
 
-    def IdentList(self, tipo):
-        self.IdentDeclar(tipo)
+    def IdentList(self, tipo_base_tuple):
+        self.IdentDeclar(tipo_base_tuple)
         while self.token_lido == TOKEN.virg:
             self.consome(TOKEN.virg)
-            self.IdentDeclar(tipo)
+            self.IdentDeclar(tipo_base_tuple)
 
-    def IdentDeclar(self, tipo):
+    def IdentDeclar(self, tipo_base_tuple):
         nome = self.lexico.lexema_atual
         self.consome(TOKEN.ident)
-        categoria = 'variavel'
-        info = {}
 
-        # Declaração de array: int v[10];
+        token_base = tipo_base_tuple[0]
+        eh_array = False
+
         if self.token_lido == TOKEN.abreColch:
-            categoria = 'array'
-            info = {'base_type': tipo}
-            tipo = Tipo.ARRAY  # O tipo principal do símbolo é ARRAY
             self.consome(TOKEN.abreColch)
             if self.token_lido != TOKEN.valorInt:
-                self.erro_semantico("Tamanho do array deve ser um inteiro.")
+                self.erro_semantico("Tamanho do array deve ser inteiro.")
             self.consome(TOKEN.valorInt)
             self.consome(TOKEN.fechaColch)
+            eh_array = True
 
-        simbolo = Simbolo(nome, tipo, categoria, info_extras=info)
+        tipo_final = (token_base, eh_array)
+        categoria = 'array' if eh_array else 'variavel'
+        simbolo = Simbolo(nome, tipo_final, categoria, info_extras={'base_token': token_base})
+
         if not self.tabela.adicionar(simbolo):
-            self.erro_semantico(f"Variável '{nome}' já declarada neste escopo.")
+            self.erro_semantico(f"Variável '{nome}' redeclarada.")
 
-    # --- ANÁLISE DE EXPRESSÃO COM CHECAGEM DE TIPO ---
+    # --- EXPRESSÕES ---
 
     def Expr(self):
-        tipo_esq = self.Log()
+        t_esq = self.Log()
+
         if self.token_lido == TOKEN.atrib:
             self.consome(TOKEN.atrib)
-            tipo_dir = self.Expr()
-            if not checar_compatibilidade_atribuicao(tipo_esq, tipo_dir):
-                self.erro_semantico(
-                    f"Atribuição incompatível. Não é possível atribuir '{tipo_dir.value}' a uma variável do tipo '{tipo_esq.value}'.")
-            return tipo_esq
-        return tipo_esq
+            t_dir = self.Expr()
+
+            if not checar_atribuicao(t_esq, t_dir):
+                self.erro_semantico(f"Atribuição inválida entre tipos.")
+
+            return t_esq
+        return t_esq
 
     def Log(self):
-        tipo_esq = self.Rel()
+        t_atual = self.Rel()
         while self.token_lido in [TOKEN.AND, TOKEN.OR]:
             op = self.token_lido
             self.consome(op)
-            tipo_dir = self.Rel()
-            tipo_res = checar_compatibilidade_relacional_logica(tipo_esq, tipo_dir)
-            if tipo_res == Tipo.ERRO:
-                self.erro_semantico(
-                    f"Operador lógico '{TOKEN.msg(op)}' não pode ser aplicado aos tipos '{tipo_esq.value}' e '{tipo_dir.value}'.")
-            tipo_esq = tipo_res
-        return tipo_esq
+            t_dir = self.Rel()
+
+            res = checar_operacao_binaria(t_atual, op, t_dir)
+            if res is None:
+                self.erro_semantico(f"Operação lógica incompatível.")
+            t_atual = res
+        return t_atual
 
     def Rel(self):
-        tipo_esq = self.Soma()
+        t_atual = self.Soma()
         if self.token_lido == TOKEN.opRel:
             op = self.token_lido
             self.consome(op)
-            tipo_dir = self.Soma()
-            tipo_res = checar_compatibilidade_relacional_logica(tipo_esq, tipo_dir)
-            if tipo_res == Tipo.ERRO:
-                self.erro_semantico(
-                    f"Operador relacional '{TOKEN.msg(op)}' não pode ser aplicado aos tipos '{tipo_esq.value}' e '{tipo_dir.value}'.")
-            return tipo_res
-        return tipo_esq
+            t_dir = self.Soma()
+
+            res = checar_operacao_binaria(t_atual, op, t_dir)
+            if res is None:
+                self.erro_semantico(f"Operação relacional incompatível.")
+            t_atual = res
+        return t_atual
 
     def Soma(self):
-        tipo_esq = self.Mult()
+        t_atual = self.Mult()
         while self.token_lido in [TOKEN.mais, TOKEN.menos]:
             op = self.token_lido
             self.consome(op)
-            tipo_dir = self.Mult()
-            try:
-                tipo_res = compatibilidade_aritmetica[tipo_esq][tipo_dir]
-                tipo_esq = tipo_res
-            except KeyError:
-                self.erro_semantico(
-                    f"Operador aritmético '{TOKEN.msg(op)}' não pode ser aplicado aos tipos '{tipo_esq.value}' e '{tipo_dir.value}'.")
-        return tipo_esq
+            t_dir = self.Mult()
+
+            res = checar_operacao_binaria(t_atual, op, t_dir)
+            if res is None:
+                self.erro_semantico(f"Operação aritmética (+/-) inválida.")
+            t_atual = res
+        return t_atual
 
     def Mult(self):
-        tipo_esq = self.Uno()
+        t_atual = self.Uno()
         while self.token_lido in [TOKEN.multiplica, TOKEN.divide, TOKEN.mod]:
             op = self.token_lido
             self.consome(op)
-            tipo_dir = self.Uno()
-            try:
-                tipo_res = compatibilidade_aritmetica[tipo_esq][tipo_dir]
-                tipo_esq = tipo_res
-            except KeyError:
-                self.erro_semantico(
-                    f"Operador aritmético '{TOKEN.msg(op)}' não pode ser aplicado aos tipos '{tipo_esq.value}' e '{tipo_dir.value}'.")
-        return tipo_esq
+            t_dir = self.Uno()
+
+            res = checar_operacao_binaria(t_atual, op, t_dir)
+            if res is None:
+                if op == TOKEN.mod:
+                    self.erro_semantico("Módulo (%) requer inteiros.")
+                else:
+                    self.erro_semantico(f"Operação aritmética (*,/,%) inválida.")
+            t_atual = res
+        return t_atual
 
     def Uno(self):
-        if self.token_lido in [TOKEN.mais, TOKEN.menos]:
-            self.consome(self.token_lido)
-            return self.Uno()
+        if self.token_lido in [TOKEN.mais, TOKEN.menos, TOKEN.NOT]:
+            op = self.token_lido
+            self.consome(op)
+            t_tuple = self.Uno()
+
+            res = checar_operacao_unaria(op, t_tuple)
+            if res is None:
+                self.erro_semantico("Operação unária inválida.")
+            return res
         return self.Folha()
 
     def Folha(self):
-        token = self.token_lido
-        if token == TOKEN.abrePar:
+        tk = self.token_lido
+
+        if tk == TOKEN.abrePar:
             self.consome(TOKEN.abrePar)
-            tipo = self.Expr()
+            t = self.Expr()
             self.consome(TOKEN.fechaPar)
-            return tipo
-        elif token == TOKEN.ident:
+            return t
+
+        elif tk == TOKEN.ident:
             return self.Identifier()
-        elif token == TOKEN.valorInt:
-            self.consome(token)
-            return Tipo.INT
-        elif token == TOKEN.valorFloat:
-            self.consome(token)
-            return Tipo.FLOAT
-        elif token == TOKEN.valorChar:
-            self.consome(token)
-            return Tipo.CHAR
-        else:
-            self.erro_semantico(f"Expressão inesperada começando com '{self.lexico.lexema_atual}'.")
+
+        elif tk == TOKEN.valorInt:
+            self.consome(tk);
+            return (TOKEN.INT, False)
+        elif tk == TOKEN.valorFloat:
+            self.consome(tk);
+            return (TOKEN.FLOAT, False)
+        elif tk == TOKEN.valorChar:
+            self.consome(tk);
+            return (TOKEN.CHAR, False)
+        elif tk == TOKEN.valorString:
+            # String é um array de char
+            self.consome(tk);
+            return (TOKEN.CHAR, True)
+
+        self.erro_semantico("Esperado expressão.")
 
     def Identifier(self):
         nome = self.lexico.lexema_atual
         simbolo = self.tabela.buscar(nome)
-        if simbolo is None:
+        if not simbolo:
             self.erro_semantico(f"Identificador '{nome}' não declarado.")
-
         self.consome(TOKEN.ident)
 
-        # Acesso a array: v[i]
+        # 1. Array com índice -> v[i]
         if self.token_lido == TOKEN.abreColch:
             if simbolo.categoria != 'array':
-                self.erro_semantico(f"'{nome}' não é um array e não pode ser indexado.")
+                self.erro_semantico(f"'{nome}' não é array.")
             self.consome(TOKEN.abreColch)
-            tipo_indice = self.Expr()
-            if tipo_indice != Tipo.INT:
-                self.erro_semantico("Índice do array deve ser um inteiro.")
+            t_idx = self.Expr()
+            if t_idx[0] not in [TOKEN.INT, TOKEN.CHAR] or t_idx[1]:  # Indice deve ser int simples
+                self.erro_semantico("Índice deve ser inteiro.")
             self.consome(TOKEN.fechaColch)
-            return simbolo.info_extras['base_type']  # O tipo do acesso é o tipo base do array
+            # Retorna o tipo base: (TOKEN.INT, False)
+            return (simbolo.tipo[0], False)
 
-        # Chamada de função: f(a, b)
+        # 2. Função -> f()
         if self.token_lido == TOKEN.abrePar:
             if simbolo.categoria != 'funcao':
-                self.erro_semantico(f"'{nome}' não é uma função e não pode ser chamada.")
+                self.erro_semantico(f"'{nome}' não é função.")
             self.consome(TOKEN.abrePar)
-            # Checagem de parâmetros
-            params_passados = self.Params()
-            params_esperados = simbolo.info_extras['params']
-            if len(params_passados) != len(params_esperados):
-                self.erro_semantico(
-                    f"Função '{nome}' chamada com número incorreto de argumentos. Esperado {len(params_esperados)}, recebido {len(params_passados)}.")
-
-            for i, (tipo_passado, tipo_esperado) in enumerate(zip(params_passados, params_esperados)):
-                if not checar_compatibilidade_atribuicao(tipo_esperado, tipo_passado):
-                    self.erro_semantico(
-                        f"Argumento {i + 1} da função '{nome}' incompatível. Esperado '{tipo_esperado.value}', recebido '{tipo_passado.value}'.")
-
+            params_reais = self.Params()
             self.consome(TOKEN.fechaPar)
-            return simbolo.tipo  # O tipo da expressão é o tipo de retorno da função
 
+            params_formais = simbolo.info_extras['params']
+            if len(params_reais) != len(params_formais):
+                self.erro_semantico(f"Número de argumentos incorreto p/ '{nome}'.")
+
+            for i, (t_real, t_formal) in enumerate(zip(params_reais, params_formais)):
+                # Aqui usa a checagem de atribuição para validar parametros
+                if not checar_atribuicao(t_formal, t_real):
+                    self.erro_semantico(f"Argumento {i + 1} incompatível.")
+
+            return simbolo.tipo  # Retorna tipo da função
+
+        # 3. Variável simples ou Nome do array
         return simbolo.tipo
 
     def Params(self):
-        tipos_params = []
-        first_expr = [TOKEN.ident, TOKEN.valorInt, TOKEN.valorFloat, TOKEN.valorChar, TOKEN.abrePar]
-        if self.token_lido in first_expr:
-            tipos_params.append(self.Expr())
+        lista = []
+        first = [TOKEN.ident, TOKEN.valorInt, TOKEN.valorFloat, TOKEN.valorChar, TOKEN.abrePar]
+        if self.token_lido in first:
+            t = self.Expr()
+            lista.append(t)
             while self.token_lido == TOKEN.virg:
                 self.consome(TOKEN.virg)
-                tipos_params.append(self.Expr())
-        return tipos_params
-
-
-if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print("\nUso: python semantico.py <arquivo_de_entrada>\n")
-        sys.exit(1)
-
-    analisador = Semantico(sys.argv[1])
-    analisador.analisa()
+                t = self.Expr()
+                lista.append(t)
+        return lista
