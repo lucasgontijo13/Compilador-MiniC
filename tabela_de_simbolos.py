@@ -1,5 +1,4 @@
 # tabela_de_simbolos.py
-
 from ttoken import TOKEN
 
 
@@ -17,42 +16,18 @@ class Simbolo:
 class TabelaDeSimbolos:
     def __init__(self):
         self.escopos = [{}]
-        # Carrega as funções com os nomes exatos do arquivo bolha.txt
         self._inicializar_stdlib()
 
     def _inicializar_stdlib(self):
-        """
-        Insere as funções nativas compatíveis com o formato 'putstr', 'getint', etc.
-        """
-
-        # --- INPUT (Entrada) ---
-
-        # int getint()
+        # Input
         self.adicionar(Simbolo('getint', (TOKEN.INT, False), 'funcao', {'params': []}))
-
-        # float getfloat() (Adicionei por precaução)
         self.adicionar(Simbolo('getfloat', (TOKEN.FLOAT, False), 'funcao', {'params': []}))
-
-        # char getchar() (Adicionei por precaução)
         self.adicionar(Simbolo('getchar', (TOKEN.CHAR, False), 'funcao', {'params': []}))
-
-        # --- OUTPUT (Saída) ---
-
-        # int putint(int x)
-        self.adicionar(Simbolo('putint', (TOKEN.INT, False), 'funcao',
-                               {'params': [(TOKEN.INT, False)]}))
-
-        # int putfloat(float x)
-        self.adicionar(Simbolo('putfloat', (TOKEN.INT, False), 'funcao',
-                               {'params': [(TOKEN.FLOAT, False)]}))
-
-        # int putchar(char c)
-        self.adicionar(Simbolo('putchar', (TOKEN.INT, False), 'funcao',
-                               {'params': [(TOKEN.CHAR, False)]}))
-
-        # int putstr(char s[])
-        self.adicionar(Simbolo('putstr', (TOKEN.INT, False), 'funcao',
-                               {'params': [(TOKEN.CHAR, True)]}))
+        # Output
+        self.adicionar(Simbolo('putint', (TOKEN.INT, False), 'funcao', {'params': [(TOKEN.INT, False)]}))
+        self.adicionar(Simbolo('putfloat', (TOKEN.INT, False), 'funcao', {'params': [(TOKEN.FLOAT, False)]}))
+        self.adicionar(Simbolo('putchar', (TOKEN.INT, False), 'funcao', {'params': [(TOKEN.CHAR, False)]}))
+        self.adicionar(Simbolo('putstr', (TOKEN.INT, False), 'funcao', {'params': [(TOKEN.CHAR, True)]}))
 
     def entrar_escopo(self):
         self.escopos.append({})
@@ -75,71 +50,91 @@ class TabelaDeSimbolos:
         return None
 
 
-# --- Mantenha o restante do arquivo (regras de tipos) exatamente igual ---
-regras_operacoes_binarias = {}
+# --- REGRAS DE TIPOS (Lógica do Gustavo com Frozenset) ---
 
+# Mapeamento de regras binárias: Chave=Set((t1,op,t2)), Valor=TipoResultado
+regras_operacoes_binarias = {
+    # Soma (+)
+    frozenset({(TOKEN.INT, False), TOKEN.mais, (TOKEN.INT, False)}): (TOKEN.INT, False),
+    frozenset({(TOKEN.FLOAT, False), TOKEN.mais, (TOKEN.FLOAT, False)}): (TOKEN.FLOAT, False),
+    frozenset({(TOKEN.INT, False), TOKEN.mais, (TOKEN.FLOAT, False)}): (TOKEN.FLOAT, False),
+    frozenset({(TOKEN.CHAR, False), TOKEN.mais, (TOKEN.CHAR, False)}): (TOKEN.INT, False),
+    frozenset({(TOKEN.INT, False), TOKEN.mais, (TOKEN.CHAR, False)}): (TOKEN.INT, False),
+    frozenset({(TOKEN.FLOAT, False), TOKEN.mais, (TOKEN.CHAR, False)}): (TOKEN.FLOAT, False),
 
-def _add_regra(t1, arr1, op, t2, arr2, t_res, arr_res):
-    chave = frozenset({(t1, arr1), op, (t2, arr2)})
-    regras_operacoes_binarias[chave] = (t_res, arr_res)
+    # Subtração (-)
+    frozenset({(TOKEN.INT, False), TOKEN.menos, (TOKEN.INT, False)}): (TOKEN.INT, False),
+    frozenset({(TOKEN.FLOAT, False), TOKEN.menos, (TOKEN.FLOAT, False)}): (TOKEN.FLOAT, False),
+    frozenset({(TOKEN.INT, False), TOKEN.menos, (TOKEN.FLOAT, False)}): (TOKEN.FLOAT, False),
+    frozenset({(TOKEN.CHAR, False), TOKEN.menos, (TOKEN.CHAR, False)}): (TOKEN.INT, False),
 
+    # Multiplicação (*)
+    frozenset({(TOKEN.INT, False), TOKEN.multiplica, (TOKEN.INT, False)}): (TOKEN.INT, False),
+    frozenset({(TOKEN.FLOAT, False), TOKEN.multiplica, (TOKEN.FLOAT, False)}): (TOKEN.FLOAT, False),
+    frozenset({(TOKEN.INT, False), TOKEN.multiplica, (TOKEN.FLOAT, False)}): (TOKEN.FLOAT, False),
 
-# 1. Aritmética
-ops_aritmeticos = [TOKEN.mais, TOKEN.menos, TOKEN.multiplica, TOKEN.divide]
-for op in ops_aritmeticos:
-    _add_regra(TOKEN.INT, False, op, TOKEN.INT, False, TOKEN.INT, False)
-    _add_regra(TOKEN.FLOAT, False, op, TOKEN.FLOAT, False, TOKEN.FLOAT, False)
-    _add_regra(TOKEN.INT, False, op, TOKEN.FLOAT, False, TOKEN.FLOAT, False)
-    _add_regra(TOKEN.CHAR, False, op, TOKEN.CHAR, False, TOKEN.INT, False)
-    _add_regra(TOKEN.CHAR, False, op, TOKEN.INT, False, TOKEN.INT, False)
-    _add_regra(TOKEN.CHAR, False, op, TOKEN.FLOAT, False, TOKEN.FLOAT, False)
+    # Divisão (/)
+    frozenset({(TOKEN.INT, False), TOKEN.divide, (TOKEN.INT, False)}): (TOKEN.INT, False),
+    frozenset({(TOKEN.FLOAT, False), TOKEN.divide, (TOKEN.FLOAT, False)}): (TOKEN.FLOAT, False),
+    frozenset({(TOKEN.INT, False), TOKEN.divide, (TOKEN.FLOAT, False)}): (TOKEN.FLOAT, False),
 
-# 2. Módulo (%)
-_add_regra(TOKEN.INT, False, TOKEN.mod, TOKEN.INT, False, TOKEN.INT, False)
-_add_regra(TOKEN.CHAR, False, TOKEN.mod, TOKEN.CHAR, False, TOKEN.INT, False)
-_add_regra(TOKEN.INT, False, TOKEN.mod, TOKEN.CHAR, False, TOKEN.INT, False)
+    # Relacionais (>, <, ==, !=) -> Sempre retornam INT (0 ou 1)
+    frozenset({(TOKEN.INT, False), TOKEN.opRel, (TOKEN.INT, False)}): (TOKEN.INT, False),
+    frozenset({(TOKEN.FLOAT, False), TOKEN.opRel, (TOKEN.FLOAT, False)}): (TOKEN.INT, False),
+    frozenset({(TOKEN.INT, False), TOKEN.opRel, (TOKEN.FLOAT, False)}): (TOKEN.INT, False),
+    frozenset({(TOKEN.CHAR, False), TOKEN.opRel, (TOKEN.CHAR, False)}): (TOKEN.INT, False),
 
-# 3. Relacionais e Lógicos
-ops_logicos_rel = [TOKEN.opRel, TOKEN.AND, TOKEN.OR]
-tipos_simples = [TOKEN.INT, TOKEN.FLOAT, TOKEN.CHAR]
+    # Lógicos (&&, ||)
+    frozenset({(TOKEN.INT, False), TOKEN.AND, (TOKEN.INT, False)}): (TOKEN.INT, False),
+    frozenset({(TOKEN.INT, False), TOKEN.OR, (TOKEN.INT, False)}): (TOKEN.INT, False),
+}
 
-for op in ops_logicos_rel:
-    for t1 in tipos_simples:
-        for t2 in tipos_simples:
-            _add_regra(t1, False, op, t2, False, TOKEN.INT, False)
+# Regras Unárias
+regras_operacoes_unarias = {
+    (TOKEN.menos, (TOKEN.INT, False)): (TOKEN.INT, False),
+    (TOKEN.menos, (TOKEN.FLOAT, False)): (TOKEN.FLOAT, False),
+    (TOKEN.NOT, (TOKEN.INT, False)): (TOKEN.INT, False),
+}
 
 
 def checar_operacao_binaria(t1, op, t2):
+    # O set ignora a ordem, permitindo 10+float ou float+10
     chave = frozenset({t1, op, t2})
     return regras_operacoes_binarias.get(chave, None)
 
 
 def checar_operacao_unaria(op, t1):
-    token_tipo, is_array = t1
-    if is_array: return None
-    if op == TOKEN.NOT:
-        return (TOKEN.INT, False)
-    if op in [TOKEN.mais, TOKEN.menos]:
-        if token_tipo in [TOKEN.INT, TOKEN.FLOAT, TOKEN.CHAR]:
-            return t1
-    return None
+    chave = (op, t1)
+    return regras_operacoes_unarias.get(chave, None)
 
 
 def checar_atribuicao(tipo_var, tipo_expr):
     t_v, arr_v = tipo_var
     t_e, arr_e = tipo_expr
 
+    # 1. Se são idênticos, aceita sempre.
+    if tipo_var == tipo_expr:
+        return True
 
-    if arr_v != arr_e:
+    # 2. Lógica para Arrays (Resolvendo o putstr(0))
+    if arr_v:
+        # Se a variável é array e a expressão também, os tipos devem bater (Ex: char[] = char[])
+        if arr_e: return t_v == t_e
+
+        # EXCEÇÃO: Aceita Inteiro sendo passado para Array (Simula NULL ou Endereço de Memória)
+        # Isso faz o putstr(0) funcionar.
+        if t_e == TOKEN.INT: return True
+
+        # Qualquer outra coisa (tipo float para array) é erro
         return False
 
-    if arr_v and arr_e:
+    # 3. Lógica para Escalares (Resolvendo o putchar(65))
+    # Se a variável NÃO é array
+    # "Se a variável é int/float/char E a expressão é int/float/char -> ACEITA TUDO"
 
-        return t_v == t_e
+    tipos_basicos = [TOKEN.INT, TOKEN.FLOAT, TOKEN.CHAR]
 
-
-    if t_v == t_e: return True
-    if t_v == TOKEN.FLOAT and t_e in [TOKEN.INT, TOKEN.CHAR]: return True
-    if t_v == TOKEN.INT and t_e == TOKEN.CHAR: return True
+    if t_v in tipos_basicos and t_e in tipos_basicos and not arr_e:
+        return True
 
     return False
