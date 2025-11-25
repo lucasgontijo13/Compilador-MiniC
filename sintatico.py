@@ -1,84 +1,158 @@
 # sintatico.py
-# Analisador Sintático COMPLETO para a linguagem Mini-C.
-
 import sys
 from lexico import Lexico
 from ttoken import TOKEN
+from semantico import Semantico
+# Importante: Precisamos disso para validar os argumentos das funções
+from tabela_de_simbolos import checar_atribuicao
 
 
 class Sintatico:
-    def __init__(self, nomeArquivo):
-        self.lexico = Lexico(nomeArquivo)
+    def __init__(self, lexico):
+        self.lexico = lexico
         self.tokenLido = None
+        # O Sintático instancia o validador
+        self.semantico = Semantico()
 
     def analisa(self):
-        self.tokenLido = self.lexico.proxToken()
+        self.tokenLido = self.lexico.prox_token()
         try:
             self.Program()
             self.consome(TOKEN.eof)
-            print('\nAnálise sintática concluída com sucesso.')
+            print('\n---------------------------------------------------')
+            print('✅ Análise sintática e semântica concluída com sucesso!')
+            print('---------------------------------------------------')
         except Exception as e:
-            print(f'\n[ANÁLISE INTERROMPIDA] {e}')
+            self.imprimir_erro_detalhado(e)
+
+    def imprimir_erro_detalhado(self, erro):
+        """
+        Formata o erro (Sintático ou Semântico) com contexto visual.
+        """
+        linha = self.lexico.token_linha
+        # Tenta pegar o lexema atual do léxico
+        lexema = self.lexico.lexema_atual
+
+        # Recupera a linha do código fonte para mostrar o contexto
+        txt_linha = "..."
+        try:
+            # O léxico tem o buffer completo do arquivo
+            linhas_codigo = self.lexico.buffer.splitlines()
+            if 0 <= linha - 1 < len(linhas_codigo):
+                txt_linha = linhas_codigo[linha - 1].strip()
+        except:
+            pass
+
+        print(f"\n🛑 ERRO (Linha {linha})")
+        print("-" * 55)
+        print(f"Descrição : {erro}")
+        print(f"Contexto  : {txt_linha}")
+        if lexema:
+            print(f"Causador  : '{lexema}'")
+        print("-" * 55 + "\n")
 
     def consome(self, token_esperado):
-        (token_val, lexema, linha, col) = self.tokenLido
-        if token_val == token_esperado:
-            self.tokenLido = self.lexico.proxToken()
+        token_atual = self.tokenLido
+        if token_atual == token_esperado:
+            self.tokenLido = self.lexico.prox_token()
         else:
-            msg_recebida = f"'{lexema}' ({TOKEN.msg(token_val)})"
-            msg_esperada = f"'{TOKEN.msg(token_esperado)}'"
-            raise Exception(
-                f'Erro Sintático na Linha {linha}, Coluna {col}: Esperado {msg_esperada}, mas foi recebido {msg_recebida}.')
+            # Lança apenas a mensagem técnica. A formatação visual é feita no 'analisa'.
+            msg_esp = TOKEN.msg(token_esperado)
+            msg_rec = TOKEN.msg(token_atual)
+            raise Exception(f"Esperado '{msg_esp}', mas encontrei '{msg_rec}'.")
 
     def Program(self):
         tipos = [TOKEN.INT, TOKEN.FLOAT, TOKEN.CHAR]
-        while self.tokenLido[0] in tipos:
+        while self.tokenLido in tipos:
             self.Function()
 
+        # Validação final: Tem main?
+        try:
+            self.semantico.verificar_existencia('main')
+        except Exception as e:
+            raise Exception("Função 'main' não encontrada no código.")
+
     def Function(self):
-        self.Type();
-        self.consome(TOKEN.ident);
+        tipo_ret = self.Type()  # Retorna (TOKEN.INT, False)
+
+        nome = self.lexico.lexema_atual
+        self.consome(TOKEN.ident)
+
         self.consome(TOKEN.abrePar)
-        self.ArgList();
-        self.consome(TOKEN.fechaPar);
-        self.CompoundStmt()
+
+        # Lê parâmetros (retorna lista de dicts com nome e tipo)
+        lista_params = self.ArgList()
+
+        self.consome(TOKEN.fechaPar)
+
+        # SEMANTICO: Declara a função e abre escopo
+        self.semantico.declarar_funcao(nome, tipo_ret, lista_params)
+        self.semantico.entrar_escopo()
+
+        # SEMANTICO: Declara os parâmetros dentro do escopo da função
+        for p in lista_params:
+            self.semantico.declarar_parametro(p['nome'], p['tipo'])
+
+        self.CompoundStmt(is_func=True)
+
+        # SEMANTICO: Fecha escopo
+        self.semantico.sair_escopo()
 
     def ArgList(self):
+        # Retorna lista de parâmetros encontrados
+        params = []
         tipos = [TOKEN.INT, TOKEN.FLOAT, TOKEN.CHAR]
-        if self.tokenLido[0] in tipos:
-            self.Arg();
-            self.RestoArgList()
+        if self.tokenLido in tipos:
+            params.append(self.Arg())
+            params.extend(self.RestoArgList())
+        return params
 
     def RestoArgList(self):
-        if self.tokenLido[0] == TOKEN.virg:
-            self.consome(TOKEN.virg);
-            self.Arg();
-            self.RestoArgList()
+        params = []
+        if self.tokenLido == TOKEN.virg:
+            self.consome(TOKEN.virg)
+            params.append(self.Arg())
+            params.extend(self.RestoArgList())
+        return params
 
     def Arg(self):
-        self.Type(); self.IdentArg()
+        tipo_base = self.Type()
+        nome = self.lexico.lexema_atual
+        self.consome(TOKEN.ident)
+        is_array = self.OpcIdentArg()
 
-    def IdentArg(self):
-        self.consome(TOKEN.ident); self.OpcIdentArg()
+        return {'nome': nome, 'tipo': (tipo_base[0], is_array)}
 
     def OpcIdentArg(self):
-        if self.tokenLido[0] == TOKEN.abreColch:
-            self.consome(TOKEN.abreColch);
+        if self.tokenLido == TOKEN.abreColch:
+            self.consome(TOKEN.abreColch)
             self.consome(TOKEN.fechaColch)
+            return True
+        return False
 
-    def CompoundStmt(self):
-        self.consome(TOKEN.abreChave);
-        self.StmtList();
+    def CompoundStmt(self, is_func=False):
+        self.consome(TOKEN.abreChave)
+
+        # Se NÃO for corpo de função, abre um escopo novo (ex: if, while)
+        if not is_func:
+            self.semantico.entrar_escopo()
+
+        self.StmtList()
+
+        if not is_func:
+            self.semantico.sair_escopo()
+
         self.consome(TOKEN.fechaChave)
 
     def StmtList(self):
         first_stmt = [TOKEN.FOR, TOKEN.WHILE, TOKEN.IF, TOKEN.abreChave, TOKEN.BREAK, TOKEN.CONTINUE, TOKEN.RETURN,
                       TOKEN.ptoVirg] + self.first_of_expr() + [TOKEN.INT, TOKEN.FLOAT, TOKEN.CHAR]
-        while self.tokenLido[0] in first_stmt:
+        while self.tokenLido in first_stmt:
             self.Stmt()
 
     def Stmt(self):
-        token = self.tokenLido[0]
+        token = self.tokenLido
+
         if token == TOKEN.FOR:
             self.ForStmt()
         elif token == TOKEN.WHILE:
@@ -88,149 +162,258 @@ class Sintatico:
         elif token == TOKEN.abreChave:
             self.CompoundStmt()
         elif token == TOKEN.BREAK:
-            self.consome(TOKEN.BREAK); self.consome(TOKEN.ptoVirg)
+            self.semantico.verificar_break_continue()
+            self.consome(TOKEN.BREAK);
+            self.consome(TOKEN.ptoVirg)
         elif token == TOKEN.CONTINUE:
-            self.consome(TOKEN.CONTINUE); self.consome(TOKEN.ptoVirg)
+            self.semantico.verificar_break_continue()
+            self.consome(TOKEN.CONTINUE);
+            self.consome(TOKEN.ptoVirg)
         elif token == TOKEN.RETURN:
-            self.consome(TOKEN.RETURN); self.Expr(); self.consome(TOKEN.ptoVirg)
+            self.consome(TOKEN.RETURN)
+            t_expr = self.Expr()  # Pega o tipo da expressão
+            self.semantico.verificar_return(t_expr)  # Valida se bate com a função
+            self.consome(TOKEN.ptoVirg)
         elif token in [TOKEN.INT, TOKEN.FLOAT, TOKEN.CHAR]:
             self.Declaration()
         elif token == TOKEN.ptoVirg:
             self.consome(TOKEN.ptoVirg)
         else:
-            self.Expr(); self.consome(TOKEN.ptoVirg)
+            self.Expr()  # Apenas calcula e ignora o resultado
+            self.consome(TOKEN.ptoVirg)
 
     def ForStmt(self):
-        self.consome(TOKEN.FOR);
+        self.consome(TOKEN.FOR)
+        self.semantico.entrar_loop()
         self.consome(TOKEN.abrePar)
-        self.Expr();
+        self.Expr()
         self.consome(TOKEN.ptoVirg)
-        self.OptExpr();
+        self.OptExpr()
         self.consome(TOKEN.ptoVirg)
-        self.OptExpr();
-        self.consome(TOKEN.fechaPar);
+        self.OptExpr()
+        self.consome(TOKEN.fechaPar)
         self.Stmt()
-
-    def OptExpr(self):
-        if self.tokenLido[0] in self.first_of_expr(): self.Expr()
+        self.semantico.sair_loop()
 
     def WhileStmt(self):
-        self.consome(TOKEN.WHILE);
-        self.consome(TOKEN.abrePar);
-        self.Expr();
-        self.consome(TOKEN.fechaPar);
+        self.consome(TOKEN.WHILE)
+        self.semantico.entrar_loop()
+        self.consome(TOKEN.abrePar)
+        self.Expr()
+        self.consome(TOKEN.fechaPar)
         self.Stmt()
+        self.semantico.sair_loop()
 
     def IfStmt(self):
-        self.consome(TOKEN.IF);
-        self.consome(TOKEN.abrePar);
-        self.Expr();
-        self.consome(TOKEN.fechaPar);
-        self.Stmt();
+        self.consome(TOKEN.IF)
+        self.consome(TOKEN.abrePar)
+        self.Expr()
+        self.consome(TOKEN.fechaPar)
+        self.Stmt()
         self.ElsePart()
 
     def ElsePart(self):
-        if self.tokenLido[0] == TOKEN.ELSE: self.consome(TOKEN.ELSE); self.Stmt()
+        if self.tokenLido == TOKEN.ELSE:
+            self.consome(TOKEN.ELSE)
+            self.Stmt()
 
     def Declaration(self):
-        self.Type();
-        self.IdentList();
+        tipo_base = self.Type()
+        self.IdentList(tipo_base)
         self.consome(TOKEN.ptoVirg)
 
-    def Type(self):
-        token = self.tokenLido[0]
-        if token in [TOKEN.INT, TOKEN.FLOAT, TOKEN.CHAR]:
-            self.consome(token)
-        else:
-            raise Exception(f"Erro: Tipo (int, float, char) esperado na linha {self.tokenLido[2]}")
+    def IdentList(self, tipo_base):
+        self.IdentDeclar(tipo_base)
+        self.RestoIdentList(tipo_base)
 
-    def IdentList(self):
-        self.IdentDeclar(); self.RestoIdentList()
+    def RestoIdentList(self, tipo_base):
+        if self.tokenLido == TOKEN.virg:
+            self.consome(TOKEN.virg)
+            self.IdentDeclar(tipo_base)
+            self.RestoIdentList(tipo_base)
 
-    def RestoIdentList(self):
-        if self.tokenLido[0] == TOKEN.virg: self.consome(TOKEN.virg); self.IdentDeclar(); self.RestoIdentList()
+    def IdentDeclar(self, tipo_base):
+        nome = self.lexico.lexema_atual
+        self.consome(TOKEN.ident)
 
-    def IdentDeclar(self):
-        self.consome(TOKEN.ident); self.OpcIdentDeclar()
+        eh_array = self.OpcIdentDeclar()
+        tipo_final = (tipo_base[0], eh_array)
+
+        self.semantico.declarar_variavel(nome, tipo_final)
 
     def OpcIdentDeclar(self):
-        if self.tokenLido[0] == TOKEN.abreColch:
-            self.consome(TOKEN.abreColch);
-            self.consome(TOKEN.valorInt);
+        if self.tokenLido == TOKEN.abreColch:
+            self.consome(TOKEN.abreColch)
+            self.consome(TOKEN.valorInt)
             self.consome(TOKEN.fechaColch)
+            return True
+        return False
 
-    # --- NOVA ANÁLISE DE EXPRESSÃO (ESTILO ITERATIVO) ---
+    def Type(self):
+        token = self.tokenLido
+        if token in [TOKEN.INT, TOKEN.FLOAT, TOKEN.CHAR]:
+            self.consome(token)
+            return (token, False)
+        else:
+            raise Exception("Tipo (int, float, char) esperado.")
 
-    def first_of_expr(self):  # Helper para saber se um token pode iniciar uma expressão
+    def OptExpr(self):
+        if self.tokenLido in self.first_of_expr():
+            return self.Expr()
+        return (TOKEN.INT, False)  # Retorno padrão
+
+    # --- EXPRESSÕES (Agora retornam TIPO) ---
+
+    def first_of_expr(self):
         return [TOKEN.ident, TOKEN.valorInt, TOKEN.valorFloat, TOKEN.valorChar, TOKEN.valorString,
                 TOKEN.abrePar, TOKEN.mais, TOKEN.menos, TOKEN.NOT]
 
-    def Expr(self):  # Expr -> Log [ = Expr ]
-        self.Log()
-        if self.tokenLido[0] == TOKEN.atrib:
-            self.consome(TOKEN.atrib);
-            self.Expr()
+    def Expr(self):
+        t1 = self.Log()
+        if self.tokenLido == TOKEN.atrib:
+            self.consome(TOKEN.atrib)
+            t2 = self.Expr()
+            self.semantico.verificar_atribuicao(t1, t2)
+            return t1
+        return t1
 
-    def Log(self):  # Log -> Nao { (&& | ||) Nao }
-        self.Nao()
-        while self.tokenLido[0] in [TOKEN.AND, TOKEN.OR]:
-            self.consome(self.tokenLido[0]);
-            self.Nao()
+    def Log(self):
+        t1 = self.Nao()
+        while self.tokenLido in [TOKEN.AND, TOKEN.OR]:
+            op = self.tokenLido
+            self.consome(op)
+            t2 = self.Nao()
+            t1 = self.semantico.calcular_binario(t1, op, t2)
+        return t1
 
-    def Nao(self):  # Nao -> [!] Rel
-        if self.tokenLido[0] == TOKEN.NOT: self.consome(TOKEN.NOT)
-        self.Rel()
+    def Nao(self):
+        if self.tokenLido == TOKEN.NOT:
+            op = self.tokenLido
+            self.consome(TOKEN.NOT)
+            t = self.Rel()
+            return self.semantico.calcular_unario(op, t)
+        return self.Rel()
 
-    def Rel(self):  # Rel -> Soma [ opRel Soma ]
-        self.Soma()
-        if self.tokenLido[0] == TOKEN.opRel:
-            self.consome(TOKEN.opRel);
-            self.Soma()
+    def Rel(self):
+        t1 = self.Soma()
+        if self.tokenLido == TOKEN.opRel:
+            op = self.tokenLido
+            self.consome(op)
+            t2 = self.Soma()
+            t1 = self.semantico.calcular_binario(t1, op, t2)
+        return t1
 
-    def Soma(self):  # Soma -> Mult { (+|-) Mult }
-        self.Mult()
-        while self.tokenLido[0] in [TOKEN.mais, TOKEN.menos]:
-            self.consome(self.tokenLido[0]);
-            self.Mult()
+    def Soma(self):
+        t1 = self.Mult()
+        while self.tokenLido in [TOKEN.mais, TOKEN.menos]:
+            op = self.tokenLido
+            self.consome(op)
+            t2 = self.Mult()
+            t1 = self.semantico.calcular_binario(t1, op, t2)
+        return t1
 
-    def Mult(self):  # Mult -> Uno { (*|/|%) Uno }
-        self.Uno()
-        while self.tokenLido[0] in [TOKEN.multiplica, TOKEN.divide, TOKEN.mod]:
-            self.consome(self.tokenLido[0]);
-            self.Uno()
+    def Mult(self):
+        t1 = self.Uno()
+        while self.tokenLido in [TOKEN.multiplica, TOKEN.divide, TOKEN.mod]:
+            op = self.tokenLido
+            self.consome(op)
+            t2 = self.Uno()
+            t1 = self.semantico.calcular_binario(t1, op, t2)
+        return t1
 
-    def Uno(self):  # Uno -> (+|-) Uno | Folha
-        if self.tokenLido[0] in [TOKEN.mais, TOKEN.menos]:
-            self.consome(self.tokenLido[0]);
-            self.Uno()
-        else:
-            self.Folha()
+    def Uno(self):
+        if self.tokenLido in [TOKEN.mais, TOKEN.menos]:
+            op = self.tokenLido
+            self.consome(op)
+            t = self.Uno()
+            return self.semantico.calcular_unario(op, t)
+        return self.Folha()
 
-    def Folha(self):  # Folha -> ( Expr ) | Identifier | valorInt | valorFloat | valorChar | valorString
-        token = self.tokenLido[0]
+    def Folha(self):
+        token = self.tokenLido
         if token == TOKEN.abrePar:
-            self.consome(TOKEN.abrePar); self.Expr(); self.consome(TOKEN.fechaPar)
+            self.consome(TOKEN.abrePar)
+            t = self.Expr()
+            self.consome(TOKEN.fechaPar)
+            return t
         elif token == TOKEN.ident:
-            self.Identifier()
-        elif token in [TOKEN.valorInt, TOKEN.valorFloat, TOKEN.valorChar, TOKEN.valorString]:
-            self.consome(token)
+            return self.Identifier()
+        elif token == TOKEN.valorInt:
+            self.consome(TOKEN.valorInt)
+            return (TOKEN.INT, False)
+        elif token == TOKEN.valorFloat:
+            self.consome(TOKEN.valorFloat)
+            return (TOKEN.FLOAT, False)
+        elif token == TOKEN.valorChar:
+            self.consome(TOKEN.valorChar)
+            return (TOKEN.CHAR, False)
+        elif token == TOKEN.valorString:
+            self.consome(TOKEN.valorString)
+            return (TOKEN.CHAR, True)
         else:
-            raise Exception(
-                f"Erro: Expressão esperada (ident, número ou '('), mas veio '{self.tokenLido[1]}' na linha {self.tokenLido[2]}")
+            raise Exception("Expressão esperada (identificador, número ou parenteses).")
 
-    def Identifier(self):  # Identifier -> ident OpcIdentifier
-        self.consome(TOKEN.ident);
-        self.OpcIdentifier()
+    def Identifier(self):
+        nome = self.lexico.lexema_atual
+        # Primeiro, buscamos na tabela para saber o que é
+        simbolo = self.semantico.verificar_existencia(nome)
+        self.consome(TOKEN.ident)
 
-    def OpcIdentifier(self):  # OpcIdentifier -> [ Expr ] | ( Params ) | LAMBDA
-        token = self.tokenLido[0]
+        return self.OpcIdentifier(simbolo)
+
+    def OpcIdentifier(self, simbolo):
+        token = self.tokenLido
+
+        # Array: v[i]
         if token == TOKEN.abreColch:
-            self.consome(TOKEN.abreColch); self.Expr(); self.consome(TOKEN.fechaColch)
+            if not simbolo.tipo[1]:  # Não é array
+                raise Exception(f"Erro Semântico: '{simbolo.nome}' não é array.")
+
+            self.consome(TOKEN.abreColch)
+            t_idx = self.Expr()
+            if t_idx[0] not in [TOKEN.INT, TOKEN.CHAR] or t_idx[1]:
+                raise Exception("Erro Semântico: Índice deve ser inteiro.")
+            self.consome(TOKEN.fechaColch)
+            return (simbolo.tipo[0], False)  # Retorna o tipo base do elemento
+
+        # Função: f(x)
         elif token == TOKEN.abrePar:
-            self.consome(TOKEN.abrePar); self.Params(); self.consome(TOKEN.fechaPar)
+            if simbolo.categoria != 'funcao':
+                raise Exception(f"Erro Semântico: '{simbolo.nome}' não é função.")
 
-    def Params(self):  # Params -> Expr RestoParams | LAMBDA
-        if self.tokenLido[0] in self.first_of_expr(): self.Expr(); self.RestoParams()
+            self.consome(TOKEN.abrePar)
+            self.Params(simbolo)
+            self.consome(TOKEN.fechaPar)
+            return simbolo.tipo  # Retorna o tipo de retorno da função
 
-    def RestoParams(self):  # RestoParams -> , Expr RestoParams | LAMBDA
-        if self.tokenLido[0] == TOKEN.virg: self.consome(TOKEN.virg); self.Expr(); self.RestoParams()
+        # Variável simples
+        return simbolo.tipo
+
+    def Params(self, simbolo_func):
+        params_formais = simbolo_func.info_extras['params']
+        if self.tokenLido in self.first_of_expr():
+            # Verifica o primeiro argumento
+            if len(params_formais) < 1:
+                raise Exception(f"Erro Semântico: Excesso de argumentos em {simbolo_func.nome}")
+
+            t_arg = self.Expr()
+            if not checar_atribuicao(params_formais[0], t_arg):
+                raise Exception(f"Erro Semântico: Argumento 1 inválido em {simbolo_func.nome}")
+
+            self.RestoParams(simbolo_func, params_formais, 1)
+        else:
+            if len(params_formais) > 0:
+                raise Exception(f"Erro Semântico: Faltam argumentos em {simbolo_func.nome}")
+
+    def RestoParams(self, simbolo_func, params_formais, index):
+        if self.tokenLido == TOKEN.virg:
+            self.consome(TOKEN.virg)
+
+            if index >= len(params_formais):
+                raise Exception(f"Erro Semântico: Excesso de argumentos em {simbolo_func.nome}")
+
+            t_arg = self.Expr()
+            if not checar_atribuicao(params_formais[index], t_arg):
+                raise Exception(f"Erro Semântico: Argumento {index + 1} inválido em {simbolo_func.nome}")
+
+            self.RestoParams(simbolo_func, params_formais, index + 1)

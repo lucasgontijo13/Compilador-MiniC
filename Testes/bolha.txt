@@ -38,7 +38,7 @@ int main()
       buffer[i] = getint();
    }
 
-   ordena(vetor, 15);
+   ordena(buffer, 15);
 
    // saida
    putstr("SAIDA \n");
@@ -49,7 +49,10 @@ int main()
    }
 
 
-   \\ codigos estranhos
-   float x = 3.14;
-   char z = 4 + "cinco";
+   // codigos estranhos
+   float x;
+   x = 3.14;
+
+   char z;
+   //z = 4 + "cinco";
 }

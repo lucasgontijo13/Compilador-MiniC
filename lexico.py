@@ -1,3 +1,4 @@
+# lexico.py
 import sys
 from enum import Enum, auto
 from ttoken import TOKEN
@@ -50,32 +51,26 @@ class Lexico:
 
     def _devolver_char(self):
         if self.posicao > 0:
-            # Desfaz o avanço do ponteiro
             self.posicao -= 1
-            # Importante: A lógica de voltar linha/coluna não é trivial,
-            # mas para a máquina de estados, o importante é que o caractere
-            # correto será lido na próxima iteração.
-            # O ponto de início do token já foi salvo.
+            # Nota: Retroceder linha/coluna não é preciso aqui pois a
+            # posição de início do token (token_linha) já foi salva.
 
     def prox_token(self):
         estado = Estado.INICIAL
         lexema_local = []
 
         while True:
-            # Guarda a posição no início de cada token potencial
+            # Guarda a posição no início de cada token
             if not lexema_local:
                 self.token_linha = self._linha
                 self.token_coluna = self._coluna
 
             char = self._proximo_char()
 
-            # --- ESTADO INICIAL: Ponto de partida e filtro de espaços/comentários ---
+            # --- ESTADO INICIAL ---
             if estado == Estado.INICIAL:
-                # CORREÇÃO: Ignora brancos e comentários DENTRO do estado inicial
+                # Ignora espaços em branco
                 if char in ' \t\r\n':
-                    # Reseta a posição de início do token, pois estamos apenas pulando
-                    self.token_linha = self._linha
-                    self.token_coluna = self._coluna
                     continue
 
                 lexema_local.append(char)
@@ -101,49 +96,62 @@ class Lexico:
                 elif char == '/':
                     proximo = self._proximo_char()
                     if proximo == '/':
-                        lexema_local = []  # Descarta a barra inicial do comentário
+                        lexema_local = []
                         estado = Estado.EM_COMENTARIO
                     else:
                         self._devolver_char()
                         self.lexema_atual = '/'
                         return TOKEN.divide
                 elif char == '+':
-                    self.lexema_atual = '+'; return TOKEN.mais
+                    self.lexema_atual = '+';
+                    return TOKEN.mais
                 elif char == '-':
-                    self.lexema_atual = '-'; return TOKEN.menos
+                    self.lexema_atual = '-';
+                    return TOKEN.menos
                 elif char == '*':
-                    self.lexema_atual = '*'; return TOKEN.multiplica
+                    self.lexema_atual = '*';
+                    return TOKEN.multiplica
                 elif char == '%':
-                    self.lexema_atual = '%'; return TOKEN.mod
+                    self.lexema_atual = '%';
+                    return TOKEN.mod
                 elif char == '(':
-                    self.lexema_atual = '('; return TOKEN.abrePar
+                    self.lexema_atual = '(';
+                    return TOKEN.abrePar
                 elif char == ')':
-                    self.lexema_atual = ')'; return TOKEN.fechaPar
+                    self.lexema_atual = ')';
+                    return TOKEN.fechaPar
                 elif char == '{':
-                    self.lexema_atual = '{'; return TOKEN.abreChave
+                    self.lexema_atual = '{';
+                    return TOKEN.abreChave
                 elif char == '}':
-                    self.lexema_atual = '}'; return TOKEN.fechaChave
+                    self.lexema_atual = '}';
+                    return TOKEN.fechaChave
                 elif char == '[':
-                    self.lexema_atual = '['; return TOKEN.abreColch
+                    self.lexema_atual = '[';
+                    return TOKEN.abreColch
                 elif char == ']':
-                    self.lexema_atual = ']'; return TOKEN.fechaColch
+                    self.lexema_atual = ']';
+                    return TOKEN.fechaColch
                 elif char == ',':
-                    self.lexema_atual = ','; return TOKEN.virg
+                    self.lexema_atual = ',';
+                    return TOKEN.virg
                 elif char == ';':
-                    self.lexema_atual = ';'; return TOKEN.ptoVirg
+                    self.lexema_atual = ';';
+                    return TOKEN.ptoVirg
                 elif char == '\0':
-                    self.lexema_atual = '<eof>'; return TOKEN.eof
+                    self.lexema_atual = '<eof>';
+                    return TOKEN.eof
                 else:
-                    self.lexema_atual = char; return TOKEN.erro
+                    self.lexema_atual = char;
+                    return TOKEN.erro
 
             # --- ESTADO DE COMENTÁRIO ---
             elif estado == Estado.EM_COMENTARIO:
                 if char in ['\n', '\0']:
-                    estado = Estado.INICIAL  # Volta ao estado inicial para procurar o próximo token
-                continue  # Continua consumindo caracteres do comentário
+                    estado = Estado.INICIAL
+                continue
 
-            # --- OUTROS ESTADOS ---
-
+            # --- IDENTIFICADOR ---
             elif estado == Estado.EM_IDENTIFICADOR:
                 if char.isalnum() or char == '_':
                     lexema_local.append(char)
@@ -152,22 +160,15 @@ class Lexico:
                     self.lexema_atual = "".join(lexema_local)
                     return TOKEN.reservada(self.lexema_atual)
 
+            # --- NÚMEROS (INT / FLOAT) ---
             elif estado == Estado.EM_INTEIRO:
                 if char.isdigit():
                     lexema_local.append(char)
                 elif char == '.':
                     lexema_local.append(char)
                     estado = Estado.EM_FLOAT
-                # CORREÇÃO: Trata erro "9var"
-                elif char.isalpha():
+                elif char.isalpha():  # Erro léxico: 9var
                     lexema_local.append(char)
-                    while True:
-                        proximo = self._proximo_char()
-                        if proximo.isalnum():
-                            lexema_local.append(proximo)
-                        else:
-                            self._devolver_char()
-                            break
                     self.lexema_atual = "".join(lexema_local)
                     return TOKEN.erro
                 else:
@@ -181,49 +182,45 @@ class Lexico:
                 else:
                     self._devolver_char()
                     self.lexema_atual = "".join(lexema_local)
-                    # CORREÇÃO: Trata erro "3."
-                    if self.lexema_atual.endswith('.'):
-                        return TOKEN.erro
+                    if self.lexema_atual.endswith('.'): return TOKEN.erro
                     return TOKEN.valorFloat
 
+            # --- STRING ---
             elif estado == Estado.EM_STRING:
                 lexema_local.append(char)
                 if char == '"':
                     self.lexema_atual = "".join(lexema_local)
                     return TOKEN.valorString
-                # CORREÇÃO: Finaliza corretamente string não terminada no fim do arquivo
-                if char == '\0':
-                    self.lexema_atual = "".join(lexema_local[:-1])  # Remove o \0 do lexema
+                if char == '\0': return TOKEN.erro
+
+            # --- CHAR (CORRIGIDO) ---
+            elif estado == Estado.EM_CHAR:
+                # O 'char' atual é o conteúdo (ex: 'a' ou '\')
+
+                # 1. Trata o conteúdo
+                if char == '\\':  # Escape (ex: \n)
+                    lexema_local.append(char)
+                    escapado = self._proximo_char()
+                    lexema_local.append(escapado)
+                elif char != "'":  # Normal (ex: a)
+                    lexema_local.append(char)
+                else:
+                    # Se veio aspa logo de cara ('') é erro ou vazio inválido
+                    self.lexema_atual = "".join(lexema_local)
                     return TOKEN.erro
 
-            elif estado == Estado.EM_CHAR:
-                # CORREÇÃO: Lógica mais robusta para validar char
-                conteudo = []
-                # Consome o conteúdo
-                if char == '\\':  # Sequência de escape
-                    conteudo.append(char)
-                    conteudo.append(self._proximo_char())
-                else:
-                    # Consome até encontrar o fechamento ou erro
-                    temp_char = char
-                    while temp_char != "'" and temp_char not in ['\n', '\0']:
-                        conteudo.append(temp_char)
-                        temp_char = self._proximo_char()
-                    char = temp_char  # Atualiza o char para o que finalizou o loop
-
-                lexema_local.extend(conteudo)
-
-                if char == "'":
-                    lexema_local.append(char)
+                # 2. Verifica fechamento obrigatório
+                fechamento = self._proximo_char()
+                if fechamento == "'":
+                    lexema_local.append("'")
                     self.lexema_atual = "".join(lexema_local)
-                    # Valida o tamanho do conteúdo
-                    if len(conteudo) == 1 or (len(conteudo) == 2 and conteudo[0] == '\\'):
-                        return TOKEN.valorChar
+                    return TOKEN.valorChar
+                else:
+                    # Se não fechou (ex: 'ab), é erro
+                    self.lexema_atual = "".join(lexema_local)
+                    return TOKEN.erro
 
-                # Se chegou aqui, é erro (não fechou ou tamanho inválido)
-                self.lexema_atual = "".join(lexema_local)
-                return TOKEN.erro
-
+            # --- OPERADORES ---
             elif estado in [Estado.EM_OP_MAIOR_MENOR, Estado.EM_OP_IGUAL, Estado.EM_OP_DIFERENTE]:
                 if char == '=':
                     lexema_local.append(char)
@@ -242,8 +239,6 @@ class Lexico:
                     self.lexema_atual = "".join(lexema_local)
                     return TOKEN.AND
                 else:
-                    self._devolver_char()
-                    self.lexema_atual = "".join(lexema_local)
                     return TOKEN.erro
 
             elif estado == Estado.EM_OP_OR:
@@ -252,36 +247,4 @@ class Lexico:
                     self.lexema_atual = "".join(lexema_local)
                     return TOKEN.OR
                 else:
-                    self._devolver_char()
-                    self.lexema_atual = "".join(lexema_local)
                     return TOKEN.erro
-
-
-# Bloco de execução para teste do analisador léxico
-if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print("\nUso: python lexico.py <arquivo_de_entrada>\n")
-        sys.exit(1)
-
-    nome_arquivo = sys.argv[1]
-    analisador = Lexico(nome_arquivo)
-
-    print("-" * 50)
-    print(f"Analisando o arquivo (Modo Máquina de Estados): '{nome_arquivo}'")
-    print("-" * 50)
-
-    while True:
-        token = analisador.prox_token()
-        linha = analisador.token_linha
-        coluna = analisador.token_coluna
-        tipo = TOKEN.msg(token)
-        lexema = analisador.lexema_atual
-
-        print(f"L:{linha:03}, C:{coluna:03} | Token: {tipo:<18}| Lexema: '{lexema}'")
-
-        if token == TOKEN.eof:
-            break
-
-    print("-" * 50)
-    print("Análise léxica concluída.")
-    print("-" * 50)
