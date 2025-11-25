@@ -28,14 +28,62 @@ class Semantico:
         if self.token_lido == token_esperado:
             self.token_lido = self.lexico.prox_token()
         else:
+            # Captura dados para o erro
             lexema = self.lexico.lexema_atual
             linha = self.lexico.token_linha
-            raise Exception(
-                f"Linha {linha}: Esperado '{TOKEN.msg(token_esperado)}', mas veio '{TOKEN.msg(self.token_lido)}' ('{lexema}').")
+
+            # Tenta recuperar a linha do código fonte (Contexto)
+            txt_linha = ""
+            try:
+                linhas_codigo = self.lexico.buffer.splitlines()
+                if 0 <= linha - 1 < len(linhas_codigo):
+                    txt_linha = linhas_codigo[linha - 1].strip()
+            except:
+                txt_linha = "..."
+
+            msg_esperada = TOKEN.msg(token_esperado)
+            msg_recebida = TOKEN.msg(self.token_lido)
+
+            # Formata a mensagem igual ao erro semântico
+            mensagem_erro = (
+                f"\n"
+                f"🛑 ERRO SINTÁTICO (Linha {linha})\n"
+                f"---------------------------------------------------\n"
+                f"Descrição : Esperado '{msg_esperada}', mas encontrei '{msg_recebida}'.\n"
+                f"Causador  : '{lexema}'\n"
+                f"Contexto  : {txt_linha}\n"
+                f"---------------------------------------------------"
+            )
+
+            raise Exception(mensagem_erro)
 
     def erro_semantico(self, msg):
         linha = self.lexico.token_linha
-        raise Exception(f"Erro Semântico na Linha {linha}: {msg}")
+        lexema = self.lexico.lexema_atual
+
+        # Tenta recuperar a linha original do código fonte para dar contexto
+        txt_linha = ""
+        try:
+            linhas_codigo = self.lexico.buffer.splitlines()
+            if 0 <= linha - 1 < len(linhas_codigo):
+                txt_linha = linhas_codigo[linha - 1].strip()
+        except:
+            txt_linha = "..."
+
+        # Formata uma mensagem de erro visualmente clara
+        mensagem_erro = (
+            f"\n"
+            f"🛑 ERRO SEMÂNTICO (Linha {linha})\n"
+            f"---------------------------------------------------\n"
+            f"Descrição : {msg}\n"
+            f"Causador  : '{lexema}' (Token: {TOKEN.msg(self.token_lido)})\n"
+            f"Contexto  : {txt_linha}\n"
+            f"---------------------------------------------------"
+        )
+
+        # Removemos o prefixo "Erro Semântico na Linha..." da Exception,
+        # pois nossa mensagem formatada já contém tudo.
+        raise Exception(mensagem_erro)
 
     # --- GRAMÁTICA ---
 
@@ -346,13 +394,18 @@ class Semantico:
 
         # 1. Array com índice -> v[i]
         if self.token_lido == TOKEN.abreColch:
-            if simbolo.categoria != 'array':
+            eh_array = simbolo.tipo[1]
+
+            if not eh_array:
                 self.erro_semantico(f"'{nome}' não é array.")
+
             self.consome(TOKEN.abreColch)
             t_idx = self.Expr()
-            if t_idx[0] not in [TOKEN.INT, TOKEN.CHAR] or t_idx[1]:  # Indice deve ser int simples
+            # Indice deve ser inteiro (INT ou CHAR) e NÃO pode ser array
+            if t_idx[0] not in [TOKEN.INT, TOKEN.CHAR] or t_idx[1]:
                 self.erro_semantico("Índice deve ser inteiro.")
             self.consome(TOKEN.fechaColch)
+
             # Retorna o tipo base: (TOKEN.INT, False)
             return (simbolo.tipo[0], False)
 
@@ -369,18 +422,18 @@ class Semantico:
                 self.erro_semantico(f"Número de argumentos incorreto p/ '{nome}'.")
 
             for i, (t_real, t_formal) in enumerate(zip(params_reais, params_formais)):
-                # Aqui usa a checagem de atribuição para validar parametros
                 if not checar_atribuicao(t_formal, t_real):
                     self.erro_semantico(f"Argumento {i + 1} incompatível.")
 
             return simbolo.tipo  # Retorna tipo da função
 
-        # 3. Variável simples ou Nome do array
+        # 3. Variável simples, Parâmetro ou Nome do array (sem colchetes)
         return simbolo.tipo
 
     def Params(self):
         lista = []
-        first = [TOKEN.ident, TOKEN.valorInt, TOKEN.valorFloat, TOKEN.valorChar, TOKEN.abrePar]
+        first = [TOKEN.ident, TOKEN.valorInt, TOKEN.valorFloat, TOKEN.valorChar, TOKEN.valorString, TOKEN.abrePar]
+
         if self.token_lido in first:
             t = self.Expr()
             lista.append(t)
@@ -389,3 +442,4 @@ class Semantico:
                 t = self.Expr()
                 lista.append(t)
         return lista
+

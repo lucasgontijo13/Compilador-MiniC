@@ -1,8 +1,7 @@
 # main.py
 
 import sys
-# 1. Mude a importação de 'sintatico' para 'semantico'
-from semantico import Semantico  # << MUDANÇA AQUI
+from semantico import Semantico
 
 
 def main():
@@ -14,11 +13,15 @@ def main():
     nome_arquivo_entrada = sys.argv[1]
 
     # 2. Instancie a classe Semantico em vez de Sintatico
-    analisador = Semantico(nome_arquivo_entrada)  # << MUDANÇA AQUI
+    analisador = Semantico(nome_arquivo_entrada)
 
-    print(f"--- Iniciando análise completa do arquivo: {nome_arquivo_entrada} ---")
-    analisador.analisa()
-    print(f"--- Análise finalizada. ---")
+    try:
+        analisador.analisa()
+        print(f"--- Análise finalizada. ---")
+    except Exception as e:
+        # Apenas imprima 'e', pois a formatação já está na mensagem da exceção
+        print(e)
+
 
 
 # Bloco de execução principal
