@@ -50,7 +50,6 @@ class TabelaDeSimbolos:
         return None
 
 
-# --- REGRAS DE TIPOS (Lógica do Gustavo com Frozenset) ---
 
 # Mapeamento de regras binárias: Chave=Set((t1,op,t2)), Valor=TipoResultado
 regras_operacoes_binarias = {

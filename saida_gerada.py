@@ -39,7 +39,6 @@ def main():
         prompt(i + 1)
         buffer[i] = getint()
         i = i + 1
-    ordena(buffer, 15)
     putstr("SAIDA \n")
     i = 0
     while i < 15:

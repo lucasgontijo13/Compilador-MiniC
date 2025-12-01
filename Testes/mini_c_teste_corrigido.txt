@@ -40,6 +40,7 @@ float mistura_tipos(int x, float y) {
 
     //  ERRO: variável local fora de escopo
     //k = temp;           //  ERRO: temp nunca declarada
+    return 10.5;
 }
 
 //  ERRO: parâmetros com nomes repetidos
@@ -53,6 +54,7 @@ int helper(int h) {
     k = h * 2;
 
     putint(k);          //  chamada correta: 1 argumento int
+    putstr("\n");
 
     //putint();           //  ERRO: argumentos de menos
     //putint(h, k);       //  ERRO: argumentos demais
@@ -64,11 +66,17 @@ int usa_funcoes(int a, float b) {
     int x;
     float y;
 
-    x = getint();       //  ok: getint sem parâmetros retorna int
-    y = getfloat();     //  ok: getfloat sem parâmetros retorna float
+    putstr("\n[Funcao] Digite um int para x: ");
+    x = getint();
 
-    x = getfloat();     //  ERRO: float -> int
-    y = getint();       //  ok: int -> float
+    putstr("[Funcao] Digite um float para y: ");
+    y = getfloat();
+
+    putstr("[Funcao] Digite um float para x: ");
+    x = getfloat();
+
+    putstr("[Funcao] Digite um int para y: ");
+    y = getint();
 
     helper(x);          //  ok: 1 parâmetro int
     //helper(x, a);       //  ERRO: argumentos demais
@@ -86,8 +94,11 @@ int main() {
     int i;
     float f;
 
-    a = getint();       //  ok
-    b = getfloat();     //  ok
+    putstr("Digite um inteiro: "); // Adicione isso
+    a = getint();
+
+    putstr("Digite um decimal: "); // Adicione isso
+    b = getfloat();
 
     //  Testes de sistema de tipos em expressões simples
     i = 10;             //  ok
@@ -111,9 +122,11 @@ int main() {
             int a;      //  nova sombra dentro do bloco interno
             a = 3;
             putint(a);  //  imprime 3 (se execução for considerada)
+            putstr("\n");
         }
 
         putint(a);      //  imprime 1
+        putstr("\n");
     }
 
     //  ERRO: variável fora de escopo
@@ -124,17 +137,19 @@ int main() {
         int i;          //  sombra do i do laço
         i = 100;
         putint(i);      //  sempre 100
+        putstr("\n");
     }
 
     //  Após o laço, i ainda existe com o valor do escopo externo
     putint(i);
+    putstr("\n");
 
     //  Teste com while e variável declarada dentro do laço
     i = 0;
     while (i < 3) {
-        int i;          //  sombra do i externo
-        i = 42;
-        putint(i);      //  sempre 42
+        i = 42;         // Altera o 'i' externo
+        putint(i);
+        putstr("\n");
     }
 
     //  ERRO: redeclaração no mesmo escopo

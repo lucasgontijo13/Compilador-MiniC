@@ -185,7 +185,6 @@ class Sintatico:
             self.consome(TOKEN.CONTINUE);
             self.consome(TOKEN.ptoVirg)
 
-            # --- TRUQUE DO GUSTAVO ---
             # Se for um FOR, precisamos rodar o incremento antes de pular
             incremento = self.semantico.pegar_incremento_atual()
             if incremento:
@@ -440,26 +439,52 @@ class Sintatico:
             self.consome(TOKEN.fechaColch)
             return ((simbolo.tipo[0], False), f"{nome}[{t_idx[1]}]")
 
+
         elif token == TOKEN.abrePar:
             self.consome(TOKEN.abrePar)
-            cod_args = self.Params(simbolo)
+
+            # 1. Pega os argumentos passados pelo usuário
+            args_passados = self.Params()
             self.consome(TOKEN.fechaPar)
-            return (simbolo.tipo, f"{nome}({cod_args})")
+
+            # 2. Pega os parâmetros esperados da tabela de símbolos
+            params_esperados = simbolo.info_extras.get('params', [])
+
+            # VERIFICAÇÃO 1: Contagem de argumentos
+            if len(args_passados) != len(params_esperados):
+                raise Exception(
+                    f"Erro Semântico: Função '{nome}' espera {len(params_esperados)} argumentos, mas recebeu {len(args_passados)}.")
+
+            # VERIFICAÇÃO 2: Tipos dos argumentos
+            codigos_finais = []
+            for i, (tipo_passado, codigo_passado) in enumerate(args_passados):
+                tipo_esperado = params_esperados[i]
+
+                # Usa sua função de checagem do semântico
+                if not checar_atribuicao(tipo_esperado, tipo_passado):
+                    raise Exception(
+                        f"Erro Semântico: Argumento {i + 1} da função '{nome}' inválido. Esperado {tipo_esperado}, recebido {tipo_passado}.")
+                codigos_finais.append(codigo_passado)
+
+            # Gera a string final
+            return (simbolo.tipo, f"{nome}({', '.join(codigos_finais)})")
 
         return (simbolo.tipo, nome)
 
-    def Params(self, simbolo_func):
-        params_formais = simbolo_func.info_extras['params']
-        codigos_args = []
+    def Params(self):
+        # Removemos o argumento 'simbolo_func' daqui, pois validaremos fora
+        lista_args = []
         if self.tokenLido in self.first_of_expr():
             t_arg = self.Expr()
-            codigos_args.append(t_arg[1])
-            self.RestoParams(codigos_args)
-        return ", ".join(codigos_args)
+            lista_args.append(t_arg)
+            lista_args.extend(self.RestoParams())
+        return lista_args
 
-    def RestoParams(self, lista_codigos):
+    def RestoParams(self):
+        lista_args = []
         if self.tokenLido == TOKEN.virg:
             self.consome(TOKEN.virg)
             t_arg = self.Expr()
-            lista_codigos.append(t_arg[1])
-            self.RestoParams(lista_codigos)
+            lista_args.append(t_arg)
+            lista_args.extend(self.RestoParams())
+        return lista_args
