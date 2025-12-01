@@ -1,7 +1,8 @@
 # main.py
 import sys
+import subprocess
 from lexico import Lexico
-from sintatico import Sintatico  # Mudamos de Semantico para Sintatico
+from sintatico import Sintatico
 
 
 def main():
@@ -11,15 +12,27 @@ def main():
 
     nome_arquivo_entrada = sys.argv[1]
 
-    # Cria o Lexico
     lexico = Lexico(nome_arquivo_entrada)
-
-    # Cria o Sintatico e passa o Lexico
-    # (O Sintatico vai criar o Semantico internamente)
     analisador = Sintatico(lexico)
 
-    print(f"--- Iniciando análise de: {nome_arquivo_entrada} ---")
-    analisador.analisa()
+    print(f"--- Iniciando compilação de: {nome_arquivo_entrada} ---")
+
+    # Agora o analisa retorna uma string com o código Python
+    codigo_python = analisador.analisa()
+
+    if codigo_python:
+        # Salva o código gerado em um arquivo temporário
+        arquivo_saida = "saida_gerada.py"
+        with open(arquivo_saida, "w", encoding="utf-8") as f:
+            f.write(codigo_python)
+
+        print(f"✅ Compilação Sucesso! Código gerado em '{arquivo_saida}'.")
+        print("---------------------------------------------------")
+        print("🚀 EXECUTANDO O CÓDIGO GERADO...\n")
+
+        # Executa o código gerado
+        subprocess.run([sys.executable, arquivo_saida])
+        print("\n---------------------------------------------------")
 
 
 if __name__ == "__main__":

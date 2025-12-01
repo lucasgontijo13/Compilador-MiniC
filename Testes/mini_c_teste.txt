@@ -14,7 +14,7 @@ int soma_int(int a, int b) {
 
     r = a + b;          //  ok
     f = a + 0.5;        //  ok: promoção int -> float
-    //a = f;              //  ERRO: atribuição float -> int (conversão perigosa)
+    a = f;              //  ERRO: atribuição float -> int (conversão perigosa)
     return 10;             //  ERRO: retorno sem valor em função int (se MINI tratar isso)
 }
 
@@ -24,7 +24,7 @@ float mistura_tipos(int x, float y) {
 
     k = x;              //  ok
     z = y;              //  ok
-    //k = y;              //  ERRO: float -> int
+    k = y;              //  ERRO: float -> int
     z = x;              //  ok: int -> float
 
     {
@@ -67,7 +67,7 @@ int usa_funcoes(int a, float b) {
     x = getint();       //  ok: getint sem parâmetros retorna int
     y = getfloat();     //  ok: getfloat sem parâmetros retorna float
 
-    //x = getfloat();     //  ERRO: float -> int
+    x = getfloat();     //  ERRO: float -> int
     y = getint();       //  ok: int -> float
 
     helper(x);          //  ok: 1 parâmetro int
@@ -96,7 +96,7 @@ int main() {
     i = i + 1;          //  ok
     f = f + 1.0;        //  ok
 
-    //i = f;              //  ERRO: float -> int
+    i = f;              //  ERRO: float -> int
     f = i;              //  ok: int -> float
 
     //  Controle de escopo com blocos aninhados

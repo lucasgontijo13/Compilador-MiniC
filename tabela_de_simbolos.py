@@ -78,6 +78,9 @@ regras_operacoes_binarias = {
     frozenset({(TOKEN.FLOAT, False), TOKEN.divide, (TOKEN.FLOAT, False)}): (TOKEN.FLOAT, False),
     frozenset({(TOKEN.INT, False), TOKEN.divide, (TOKEN.FLOAT, False)}): (TOKEN.FLOAT, False),
 
+    # Módulo (%) - Só aceita int % int e retorna int
+    frozenset({(TOKEN.INT, False), TOKEN.mod, (TOKEN.INT, False)}): (TOKEN.INT, False),
+
     # Relacionais (>, <, ==, !=) -> Sempre retornam INT (0 ou 1)
     frozenset({(TOKEN.INT, False), TOKEN.opRel, (TOKEN.INT, False)}): (TOKEN.INT, False),
     frozenset({(TOKEN.FLOAT, False), TOKEN.opRel, (TOKEN.FLOAT, False)}): (TOKEN.INT, False),
@@ -112,29 +115,25 @@ def checar_atribuicao(tipo_var, tipo_expr):
     t_v, arr_v = tipo_var
     t_e, arr_e = tipo_expr
 
-    # 1. Se são idênticos, aceita sempre.
+    # 1. Se forem idênticos, aceita.
     if tipo_var == tipo_expr:
         return True
 
-    # 2. Lógica para Arrays (Resolvendo o putstr(0))
+    # 2. Regra para Arrays
     if arr_v:
-        # Se a variável é array e a expressão também, os tipos devem bater (Ex: char[] = char[])
-        if arr_e: return t_v == t_e
-
-        # EXCEÇÃO: Aceita Inteiro sendo passado para Array (Simula NULL ou Endereço de Memória)
-        # Isso faz o putstr(0) funcionar.
-        if t_e == TOKEN.INT: return True
-
-        # Qualquer outra coisa (tipo float para array) é erro
+        # Se for array e receber 0 (int), aceita como NULL/Ponteiro
+        if not arr_e and t_e == TOKEN.INT: return True
+        # Se ambos são arrays, tipos devem ser iguais
+        if arr_e and t_v == t_e: return True
         return False
 
-    # 3. Lógica para Escalares (Resolvendo o putchar(65))
-    # Se a variável NÃO é array
-    # "Se a variável é int/float/char E a expressão é int/float/char -> ACEITA TUDO"
+    # 3. Regra para Escalares (Variáveis simples)
+    if not arr_v and not arr_e:
+        # Define quem são os tipos numéricos
+        tipos_numericos = [TOKEN.INT, TOKEN.FLOAT, TOKEN.CHAR]
 
-    tipos_basicos = [TOKEN.INT, TOKEN.FLOAT, TOKEN.CHAR]
 
-    if t_v in tipos_basicos and t_e in tipos_basicos and not arr_e:
-        return True
+        if t_v in tipos_numericos and t_e in tipos_numericos:
+            return True
 
     return False

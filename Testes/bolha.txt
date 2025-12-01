@@ -5,7 +5,7 @@
 int ordena(int vetor[], int tam)
 {
    int topo, bolha;
-   for (topo = tam-1; topo > 1; topo = topo + 1) {
+   for (topo = tam-1; topo > 1; topo = topo - 1) {
       for (bolha = 0; bolha < topo; bolha = bolha + 1) {
           if (vetor[bolha] > vetor[bolha+1]) {
              int aux;
@@ -52,5 +52,6 @@ int main()
    // codigos estranhos
    float x;
    x = 3.14;
-   //char z = 4 + "cinco";
+   char z;
+   //z = 4 + "cinco";
 }

@@ -1,0 +1,214 @@
+// Programa demonstrativo que opera sobre vetores e usa várias construções da gramática 
+
+int fib(int n) {
+    // função recursiva simples (Tipo: int, ident: fib, ArgList: int n) 
+    if (n <= 1) return n;
+    return fib(n - 1) + fib(n - 2);
+}
+
+int sum_array(int arr[], int n) {
+    // soma elementos de um vetor 
+    int i;
+    int s;
+    i = 0;
+    s = 0;
+    for (i = 0; i < n; i = i + 1) {
+        s = s + arr[i];
+    }
+    return s;
+}
+
+float mean(int arr[], int n) {
+    // média utilizando soma inteira dividida por valor float 
+    int total;
+    total = sum_array(arr, n);
+    return total / (1.0 * n); // 1.0 é valorFloat -> converte para float 
+}
+
+int max_index(int arr[], int n) {
+    // índice do maior elemento 
+    int i;
+    int imax;
+    if (n <= 0) return -1;
+    imax = 0;
+    for (i = 1; i < n; i = i + 1) {
+        if (arr[i] > arr[imax]) {
+            imax = i;
+        }
+    }
+    return imax;
+}
+
+int scale_and_count(int arr[], int n, int factor) {
+    // multiplica cada elemento por factor, conta quantos elementos ficaram pares 
+    int i;
+    int count;
+    i = 0;
+    count = 0;
+    for (i = 0; i < n; i = i + 1) {
+        arr[i] = arr[i] * factor;
+        if ((arr[i] % 2) == 0) {
+            count = count + 1;
+            continue;
+        }
+    }
+    return count;
+}
+
+int print_array(int arr[], int n) {
+    // função que imprime um vetor (retorna 0) 
+    int i;
+    i = 0;
+    for (i = 0; i < n; i = i + 1) {
+        // chamada de função com Params: printf( Expr, Expr ) 
+        //printf("arr[%d] = %d\n", i, arr[i]);
+        putstr("arr[");
+        putint(i);
+        putstr("] = ");
+        putint(arr[i]);
+        putchar('\n');
+    }
+    return 0;
+}
+
+int example_loop_variants() {
+    // demonstra for com OptExpr vazio e while com break 
+    int i;
+    int sum;
+    i = 0;
+    sum = 0;
+
+    for (i = 0; ; i = i + 1) {
+        if (i >= 10) break;
+        if ((i % 2) == 0) {
+            sum = sum + i;
+            continue;
+        }
+    }
+
+    // while com condição lógica e uso de NOT/AND/OR 
+    i = 0;
+    while (i < 5) {
+        if (!(i == 2) && (sum > 0 || i == 0)) {
+            sum = sum + i;
+        } else {
+            sum = sum - 1;
+        }
+        i = i + 1;
+    }
+
+    return sum;
+}
+
+int hello() {
+    // função sem argumentos (ArgList = LAMBDA) 
+    putstr("Olá do exemplo!\n");
+    return 0;
+}
+
+int main() {
+    // Declarações com arrays: Type -> int, IdentDeclar -> ident [ valorInt ] 
+    int v[10];
+    int i;
+    int n;
+    int total;
+    float avg;
+    int idx;
+    int evencount;
+    char c[4];
+    int fibval;
+
+    // inicializações via expressões (Expr ;) 
+    n = 10;
+
+    // preencher vetor com valores: v[i] = i * (i + 1) 
+    i = 0;
+    for (i = 0; i < n; i = i + 1) {
+        v[i] = i * (i + 1);
+    }
+
+    // usar print_array (Identifier -> ident ( Params )) 
+    putstr("Vetor inicial:\n");
+    print_array(v, n);
+
+    // somar e calcular média 
+    total = sum_array(v, n);
+    avg = mean(v, n);
+
+    putstr("Soma = ");
+    putint(total);
+    putchar('\n');
+    putstr("Média = ");
+    putfloat(avg);
+    putchar('\n');
+
+    // encontrar índice do maior elemento 
+    idx = max_index(v, n);
+    if (idx >= 0) {
+        putstr("Maior elemento v[");
+        putint(idx);
+        putstr("] = ");
+        putint(v[idx]);
+        putchar('\n');
+    } else {
+        putstr("Vetor vazio\n");
+    }
+
+    // escalar e contar elementos pares 
+    evencount = scale_and_count(v, n, 3); // multiplica cada elemento por 3
+    putstr("Após escala por 3, ");
+    putint(evencount);
+    putstr(" elementos são pares\n");
+
+    // imprimir após escala 
+    print_array(v, n);
+
+    // demonstrar loops variantes 
+    total = example_loop_variants();
+    putstr("Resultado de example_loop_variants = ");
+    putint(total);
+    putchar('\n');
+
+    // trabalhar com chars (sem inicializador direto na declaração) 
+    c[0] = 'A';
+    c[1] = 'B';
+    c[2] = 'C';
+    c[3] = '\0';
+    putstr("Chars: ");
+    putchar(c[0]);
+    putchar(' ');
+    putchar(c[1]);
+    putchar(' ');
+    putchar(c[2]);
+    putchar('\n');
+
+    // Fibonacci: calcular alguns termos com while, usar fib(n) (chamada recursiva) 
+    i = 0;
+    while (i < 10) {
+        fibval = fib(i);
+        putstr("fib(");
+        putint(i);
+        putstr(") = ");
+        putint(fibval);
+        putchar('\n');
+        i = i + 1;
+        if (fibval > 50) {
+            // demonstrar break em while 
+            break;
+        }
+    }
+
+    // chamar função sem argumentos 
+    hello();
+
+    // uso de expressão de atribuição encadeada (RestoExpr -> = Expr RestoExpr) 
+    i = 5;
+    n = i = i + 2; // i := i+2; n := i;
+    putstr("i = ");
+    putint(i);
+    putstr(", n = ");
+    putint(n);
+    putchar('\n');
+
+    return 0;
+}
